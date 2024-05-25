@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,33 +13,33 @@ class Order extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array
-     */
-    protected $fillable = [
-        'user_id',
-        'customer_id',
-        'order_number',
-        'order_name',
-        'discount',
-        'total',
-        'profit',
-        'payment_method',
-        'status',
+    protected $casts = [
+        'status' => OrderStatus::class,
+        'payment_method' => PaymentMethod::class
     ];
 
-    /**
-     * The attributes that should be cast to native types.
-     *
-     * @var array
-     */
-    protected $casts = [
-        'id' => 'integer',
-        'user_id' => 'integer',
-        'customer_id' => 'integer',
-    ];
+    protected static function booted(): void
+    {
+        static::creating(function(self $order) {
+            $order->user_id = auth()->id();
+            $order->total = 0;
+        });
+
+        static::saving(function($order) {
+            if ($order->isDirty('total'))
+            {
+                $order->loadMissing('orderDetails.product');
+
+                $profitCalculation = $order->orderDetails->reduce(function($carry , $detail) {
+                    $productProfit = ($detail->price - $detail->product->cost_price) * $detail->quantity;
+
+                    return $carry + $productProfit;
+                }, 0);
+
+                $order->attributes['profit'] = $profitCalculation;
+            }
+        });
+    }
 
     public function orderDetails(): HasMany
     {
